@@ -1,9 +1,11 @@
 import findspark
 findspark.init()
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, regexp_replace
 from pyspark.sql.types import IntegerType
 from pyspark.sql.window import Window
 from pyspark.sql import functions as F
+from pyspark.ml.feature import StringIndexer
+from pyspark.ml import Pipeline
 
 def handle_missing_values(df):
     """
@@ -42,7 +44,6 @@ def preprocess_ratings(rating_df, nb=100):
     rating_df = rating_df.dropDuplicates()
 
     return rating_df
-
 
 def preprocess_books(book_df):
     """
@@ -85,9 +86,20 @@ def preprocess(books, ratings, users,nbBooks = 50, nbRatings = 100, file_path ="
         df = df.filter(col('num_ratings') >= nbBooks).drop('num_ratings')
 
     df = df.dropDuplicates()
-    df.toPandas().to_csv(file_path, header=True)
+    df = df.withColumn("Book-Title", regexp_replace("Book-Title", "[^a-zA-Z0-9 ]", ""))
+
+    # Transformation en valeurs numériques pour les colonnes textuelles : "Book-Author" et "Publisher"
+    indexer_author = StringIndexer(inputCol="Book-Author", outputCol="AuthorIndex")
+    indexer_publisher = StringIndexer(inputCol="Publisher", outputCol="PublisherIndex")
+
+    # Création d'un pipeline pour exécuter les transformations
+    pipeline = Pipeline(stages=[indexer_author, indexer_publisher])
+    model = pipeline.fit(df)
+    df_transformed = model.transform(df)
+
+    df_transformed.toPandas().to_csv(file_path, header=True)
     
-    return df
+    return df_transformed
 
 def pivot(data_df):
     user_book_matrix = data_df.groupBy('Book-Title')\
